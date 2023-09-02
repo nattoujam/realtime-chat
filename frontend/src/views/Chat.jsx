@@ -1,15 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import PropTypes from "prop-types";
-import { useConnect, useReceiver } from "../hooks/useConnect.js";
-import useInterval from "../hooks/useInterval.js";
+import { useSender, useReceiver } from "../hooks/websocket-hooks";
+import useInterval from "../hooks/useInterval";
 
 const Cursor = ({ userName }) => {
   const [position, setPosition] = useState({ x: null, y: null });
 
-  useReceiver("message", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.type === "mouse" && data.user === userName) {
+  useReceiver("mouse", (data) => {
+    if (data.user === userName) {
       console.log("set cursor", data);
       setPosition({ x: data.x, y: data.y });
     }
@@ -37,24 +36,20 @@ Cursor.propTypes = {
   userName: PropTypes.string,
 };
 
-const Comment = () => {
+const Comment = ({ userName }) => {
   const [text, setText] = useState("");
   const [message, setMessage] = useState([]);
-  const socket = useConnect();
+  const commentSender = useSender("comment");
 
-  useReceiver("message", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.type === "message") {
-      console.log("message", message);
-      setMessage((message) => [...message, data.message]);
-      console.log("set message", message);
-    }
+  useReceiver("comment", (data) => {
+    console.log("message", message);
+    setMessage((message) => [...message, data.message]);
+    console.log("set message", message);
   });
 
   const handleClick = () => {
     if (text.length === 0) return;
-    const data = { type: "message", message: text };
-    socket.send(JSON.stringify(data));
+    commentSender({ message: `${userName}: ${text}` });
     setText("");
   };
 
@@ -73,6 +68,10 @@ const Comment = () => {
   );
 };
 
+Comment.propTypes = {
+  userName: PropTypes.string,
+};
+
 const Chat = () => {
   const { room_id } = useParams();
   const user = useRef(null);
@@ -80,7 +79,7 @@ const Chat = () => {
   const mousePosition = useRef({ x: 0, y: 0 });
   const previousMousePosition = useRef({ x: 0, y: 0 });
 
-  const socket = useConnect();
+  const mouseSender = useSender("mouse");
 
   const dragAreaStyle = { backgroundColor: "gray", minHeight: "100vh" };
 
@@ -96,13 +95,7 @@ const Chat = () => {
       previousMousePosition.current.x !== mousePosition.current.x ||
       previousMousePosition.current.y !== mousePosition.current.y
     ) {
-      socket?.send(
-        JSON.stringify({
-          type: "mouse",
-          user: user.current.name,
-          ...mousePosition.current,
-        })
-      );
+      mouseSender({ user: user.current.name, ...mousePosition.current });
       previousMousePosition.current = mousePosition.current;
     }
   }, 50);
@@ -132,7 +125,7 @@ const Chat = () => {
       <h1>{user.current.name}</h1>
       <p>{JSON.stringify(room)}</p>
       <div style={dragAreaStyle} onPointerMove={(e) => handleMouseMove(e)}>
-        <Comment />
+        <Comment userName={user.current.name} />
       </div>
       <FriendMouseCursors />
     </>
