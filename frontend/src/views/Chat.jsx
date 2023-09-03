@@ -9,7 +9,6 @@ const Cursor = ({ userName }) => {
 
   useReceiver("mouse", (data) => {
     if (data.user === userName) {
-      console.log("set cursor", data);
       setPosition({ x: data.x, y: data.y });
     }
   });
@@ -42,9 +41,7 @@ const Comment = ({ userName }) => {
   const commentSender = useSender("comment");
 
   useReceiver("comment", (data) => {
-    console.log("message", message);
     setMessage((message) => [...message, data.message]);
-    console.log("set message", message);
   });
 
   const handleClick = () => {
@@ -72,16 +69,132 @@ Comment.propTypes = {
   userName: PropTypes.string,
 };
 
+const ImageCard = ({ url, onSelect }) => {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [select, setSelect] = useState(false);
+
+  const selectImageSend = useSender("select-image");
+
+  useReceiver("select-image", (data) => {
+    if (data.url === url) {
+      setSelect(true);
+    }
+  });
+
+  useReceiver("drag-image", (data) => {
+    if (data.url === url) {
+      setPosition({ x: data.x, y: data.y });
+    }
+  });
+
+  useReceiver("unselect-image", (data) => {
+    if (data.url === url) {
+      setSelect(false);
+    }
+  });
+
+  const style = {
+    position: "fixed",
+    top: position.y,
+    left: position.x,
+    border: select ? "1rem solid" : "unset",
+  };
+
+  return (
+    <>
+      <img
+        style={style}
+        src={url}
+        width="100px"
+        height="100px"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          selectImageSend({ url: url });
+          onSelect(url);
+        }}
+      />
+    </>
+  );
+};
+
+ImageCard.propTypes = {
+  url: PropTypes.string,
+  select: PropTypes.bool,
+  onSelect: PropTypes.func,
+};
+
+const ImageGenerator = ({ onGenerate }) => {
+  const apiEndpoint = "https://api.thecatapi.com/v1/images/search";
+
+  const handleClick = () => {
+    fetch(apiEndpoint)
+      .then((response) => response.json())
+      .then((json) => onGenerate(json[0].url));
+  };
+
+  return (
+    <>
+      <button onClick={handleClick}>generate</button>
+    </>
+  );
+};
+
+ImageGenerator.propTypes = {
+  onGenerate: PropTypes.func,
+};
+
+const MouseCursorContainer = ({ userName, members }) => {
+  console.log("create mouse container");
+  return members
+    .filter((member) => member.name !== userName)
+    .map((member, i) => {
+      return <Cursor key={i} userName={member.name} />;
+    });
+};
+
+MouseCursorContainer.propTypes = {
+  userName: PropTypes.string,
+  members: PropTypes.array,
+};
+
+const ImageContainer = ({ onSelect }) => {
+  const [images, setImages] = useState([]);
+  console.log("create image container", images);
+
+  useReceiver("create-image", (data) => {
+    setImages((images) => [...images, data.url]);
+  });
+
+  return images.map((imageUrl, i) => {
+    return (
+      <ImageCard key={i} url={imageUrl} onSelect={(url) => onSelect(url)} />
+    );
+  });
+};
+
+ImageContainer.propTypes = {
+  images: PropTypes.array,
+  onSelect: PropTypes.func,
+};
+
 const Chat = () => {
   const { room_id } = useParams();
   const user = useRef(null);
   const [room, setRoom] = useState(null);
   const mousePosition = useRef({ x: 0, y: 0 });
   const previousMousePosition = useRef({ x: 0, y: 0 });
+  const [selectImageUrl, setSelectImageUrl] = useState(null);
 
   const mouseSender = useSender("mouse");
+  const createImageSend = useSender("create-image");
+  const selectImageSend = useSender("drag-image");
+  const unselectImageSend = useSender("unselect-image");
 
-  const dragAreaStyle = { backgroundColor: "gray", minHeight: "100vh" };
+  const dragAreaStyle = {
+    backgroundColor: "gray",
+    minHeight: "100vh",
+    overflow: "hidden",
+  };
 
   useEffect(() => {
     user.current = JSON.parse(localStorage.getItem("user"));
@@ -110,24 +223,36 @@ const Chat = () => {
       y: e.clientY,
       timeStamp: e.timeStamp,
     };
+
+    if (selectImageUrl !== null) {
+      selectImageSend({ x: e.clientX, y: e.clientY, url: selectImageUrl });
+    }
   };
 
-  const FriendMouseCursors = () => {
-    return room.members
-      .filter((member) => member.name !== user.current.name)
-      .map((member, i) => {
-        return <Cursor key={i} userName={member.name} />;
-      });
+  const handleMouseUp = () => {
+    if (selectImageUrl !== null) {
+      unselectImageSend({ url: selectImageUrl });
+      setSelectImageUrl(null);
+    }
   };
 
   return (
     <>
-      <h1>{user.current.name}</h1>
-      <p>{JSON.stringify(room)}</p>
-      <div style={dragAreaStyle} onPointerMove={(e) => handleMouseMove(e)}>
+      <div
+        style={dragAreaStyle}
+        onPointerMove={(e) => handleMouseMove(e)}
+        onPointerUp={handleMouseUp}
+      >
+        <p>{user.current.name}</p>
+        <p>{JSON.stringify(room)}</p>
         <Comment userName={user.current.name} />
+        <ImageGenerator onGenerate={(url) => createImageSend({ url: url })} />
+        <ImageContainer onSelect={(url) => setSelectImageUrl(url)} />
       </div>
-      <FriendMouseCursors />
+      <MouseCursorContainer
+        userName={user.current.name}
+        members={room.members}
+      />
     </>
   );
 };
